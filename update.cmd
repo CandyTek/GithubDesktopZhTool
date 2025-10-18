@@ -21,7 +21,7 @@ if exist "GithubDesktop汉化工具.7z" (
     echo 解压完成
 ) else (
     echo 错误: 未找到 GithubDesktop汉化工具.7z
-    @REM pause
+    pause
     exit /b
 )
 
@@ -38,7 +38,7 @@ if exist "GithubDesktop汉化工具\GithubDesktopZhTool.exe" (
     exit /b
 )
 ping www.baidu.com -n 1
-taskkill /f /t /im UGithubDesktopZhTool.exe
+
 :: 删除 GithubDesktop汉化工具 文件夹
 echo === 删除 GithubDesktop汉化工具 文件夹 ===
 ping 
