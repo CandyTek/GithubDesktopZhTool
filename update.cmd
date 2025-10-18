@@ -21,13 +21,30 @@ if exist "GithubDesktop汉化工具.7z" (
     echo 解压完成
 ) else (
     echo 错误: 未找到 GithubDesktop汉化工具.7z
+    @REM pause
+    exit /b
 )
 
 
 
-echo === 脚本执行完成 ===
 
-:: 运行 GithubDesktop汉化工具/GithubDesktopZhTool.exe 并关闭 CMD
-echo === 启动 GithubDesktopZhTool.exe ===
-start "" /d "GithubDesktop汉化工具" GithubDesktopZhTool.exe & exit
+echo === 启动 GithubDesktopZhTool.exe 并等待其关闭 ===
+if exist "GithubDesktop汉化工具\GithubDesktopZhTool.exe" (
+    start /wait "" "GithubDesktop汉化工具\GithubDesktopZhTool.exe"
+    echo GithubDesktopZhTool.exe 已关闭
+) else (
+    echo 错误: 未找到 GithubDesktopZhTool.exe
+    @REM pause
+    exit /b
+)
+ping www.baidu.com -n 1
+taskkill /f /t /im UGithubDesktopZhTool.exe
+:: 删除 GithubDesktop汉化工具 文件夹
+echo === 删除 GithubDesktop汉化工具 文件夹 ===
+ping 
+rmdir /s /q "GithubDesktop汉化工具"
+echo 已删除 GithubDesktop汉化工具 文件夹
 
+echo === 所有操作已完成 ===
+@REM pause
+exit
