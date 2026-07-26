@@ -1,0 +1,103 @@
+name: Sync Fork (preserve workflows & update.cmd)
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.compare.outputs.changed }}
+      upstream_sha: ${{ steps.fetch.outputs.upstream_sha }}
+
+    steps:
+      - name: Restore cached upstream SHA
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: upstream_sha.txt
+          key: upstream-main-sha
+
+      - name: Get latest upstream commit (GitHub API)
+        id: fetch
+        run: |
+          SHA=$(curl -s https://api.github.com/repos/robotze/GithubDesktopZhTool/commits/main | jq -r .sha)
+          echo "upstream_sha=$SHA" >> $GITHUB_OUTPUT
+
+      - name: Load cached SHA (if exists)
+        id: local
+        run: |
+          if [ -f upstream_sha.txt ]; then
+            echo "local_sha=$(cat upstream_sha.txt)" >> $GITHUB_OUTPUT
+          else
+            echo "local_sha=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Compare SHAs
+        id: compare
+        run: |
+          echo "Local: ${{ steps.local.outputs.local_sha }}"
+          echo "Upstream: ${{ steps.fetch.outputs.upstream_sha }}"
+
+          if [ "${{ steps.local.outputs.local_sha }}" = "${{ steps.fetch.outputs.upstream_sha }}" ]; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update cache file
+        if: steps.compare.outputs.changed == 'true'
+        run: |
+          echo "${{ steps.fetch.outputs.upstream_sha }}" > upstream_sha.txt
+
+  sync:
+    needs: check
+    if: needs.check.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/robotze/GithubDesktopZhTool.git
+          git fetch upstream
+          
+      - name: Check changes
+        id: check
+        run: |
+            if git diff --quiet main upstream/main; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            fi
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Sync
+        if: steps.check.outputs.changed == 'true'
+        run: |
+            git checkout main
+            git reset --hard upstream/main
+        
+            git checkout HEAD@{1} -- \
+            .github/workflows/ \
+            update.cmd \
+            7z.exe \
+            7z.dll || true
+        
+            git add .
+            if git diff --staged --quiet; then
+            echo "No actual updates from upstream. Exiting."
+            exit 0
+            fi
+        
+            git commit -m "Auto-sync from upstream (preserve custom files)"
+            git fetch origin main
+            git push --force origin main
