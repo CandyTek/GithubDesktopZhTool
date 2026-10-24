@@ -1,0 +1,84 @@
+name: Sync Fork (preserve custom files, discard history)
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-main
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current main (shallow)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Fetch upstream (shallow)
+        run: |
+          git remote add upstream https://github.com/robotze/GithubDesktopZhTool.git
+          git fetch --depth 1 --no-tags upstream main
+
+      - name: Sync latest snapshot without history
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          previous=$(git rev-parse HEAD)
+
+          # Preserve custom files at their original relative paths.
+          preserve=$(mktemp -d)
+          trap 'rm -rf "$preserve"' EXIT
+          for item in .github/workflows README.md update.cmd 7z.exe 7z.dll; do
+            if [ -e "$item" ]; then
+              cp -a --parents "$item" "$preserve/"
+            fi
+          done
+
+          # Apply only the upstream file tree, without adopting its history.
+          git read-tree --reset -u upstream/main
+          rm -rf .github/workflows
+          cp -a "$preserve/." .
+          git add -A
+
+          # Skip only if the content is unchanged and HEAD has no parents.
+          if git diff --cached --quiet "$previous" &&
+             ! git cat-file -p "$previous" | grep -q '^parent '; then
+            echo "Snapshot is unchanged and history is already flattened."
+            exit 0
+          fi
+
+          # Omitting -p creates a root commit with no history.
+          snapshot=$(git commit-tree "$(git write-tree)" -m "Sync upstream latest snapshot (squashed)")
+          git push --force-with-lease="refs/heads/main:$previous" origin "$snapshot:refs/heads/main"
+
+      - name: Remove remote tags that retain old history
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Query refs without downloading the tagged history.
+          remote_tags=$(git ls-remote --tags --refs origin)
+          if [ -z "$remote_tags" ]; then
+            echo "No remote tags to remove."
+            exit 0
+          fi
+
+          leases=()
+          deletions=()
+          while read -r sha ref; do
+            leases+=("--force-with-lease=$ref:$sha")
+            deletions+=(":$ref")
+          done <<< "$remote_tags"
+
+          # Reject the entire deletion if a listed tag changed meanwhile.
+          git push --atomic "${leases[@]}" origin "${deletions[@]}"
+          echo "Removed ${#deletions[@]} remote tags."
